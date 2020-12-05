@@ -41,6 +41,8 @@ REST_FRAMEWORK = {
 
 # Application definition
 
+ASGI_APPLICATION = "ChaaAt_backend.asgi.application"
+
 INSTALLED_APPS = [
     'rest_framework',
     'index',
@@ -50,6 +52,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'channels',
 ]
 
 MIDDLEWARE = [

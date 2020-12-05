@@ -8,13 +8,15 @@ from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import ParseError, AuthenticationFailed
 
 from django.contrib import auth
+from django.db.models.signals import post_save
+
+import asyncio
+from asgiref.sync import sync_to_async as asy
 
 from .asyncwrap import AsyncViewWrap
 from . import serializers as s
 from . import models as m
 
-import asyncio
-from asgiref.sync import sync_to_async as asy
 
 
 class UserAPIViewSet(GenericViewSet, CreateModelMixin, RetrieveModelMixin):
@@ -91,21 +93,18 @@ class MessageAPIViewSet(AsyncViewWrap, GenericViewSet, CreateModelMixin, ListMod
         return m.Message.objects.filter(id__gte=id_from, chatroom__in=chatrooms).order_by('id')
 
     async def list(self, request, *args, **kwargs):
-        """If the requested queryset does not exist, wait at most 10s for the queryset.
-
-        I once tried to realize it by awaiting a `Future` object but 
-        failed because the async views are processed in different 
-        event loops and it seems that setting the `Future` object's 
-        result in another event loop is impossible.
-
-        I am still looking for a better way...
+        """If the requested queryset does not exist, wait at most 60s for the queryset.
         """
         qs = self.get_queryset()
-        max_wait = 10
-        waited = 0
-        interval = 0.1
-        while not await asy(qs.exists)() and waited < max_wait:
-            await asyncio.sleep(interval)
-            waited += interval
+        if not await asy(qs.exists)():
+            def callback(sender, **kwargs):
+                if qs.exists():
+                    future.set_result(True)
+            post_save.connect(callback, sender=m.Message)
 
+            future = asyncio.Future()
+            try:
+                await asyncio.wait_for(future, 60)
+            except asyncio.TimeoutError:
+                pass
         return await asy(super().list)(request, *args, **kwargs)
