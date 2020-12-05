@@ -1,4 +1,5 @@
 from rest_framework import serializers as s, validators as v
+from rest_framework.request import Request
 from . import models as m
 
 
@@ -97,7 +98,20 @@ class MessageSerializer(s.ModelSerializer):
         read_only_fields = ['sender']
 
     def create(self, validated_data):
-        """Set `sender` as the current user.
-        """
-        validated_data['sender'] = self.context['request'].user
-        return super().create(validated_data)
+        # Use the current user as the value of the `sender` field.
+        request: Request = self.context['request']
+        validated_data['sender'] = request.user
+        ret = super().create(validated_data)
+
+        # Delete the messages which are over quota.
+        QUOTA = 500
+        relevant_chatrooms = m.Chatroom.objects.filter(members=request.user)
+        relevant_messages = m.Message.objects.filter(
+            chatroom__in=relevant_chatrooms).order_by('-id')
+        if relevant_messages.count() > QUOTA:  # 500 messages take up at most 20kb of space
+            for message in relevant_messages[QUOTA + 1:]:
+                print('delete')
+                message: m.Message
+                message.delete()
+
+        return ret
