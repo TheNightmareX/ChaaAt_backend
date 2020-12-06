@@ -3,20 +3,10 @@ import asyncio
 
 
 class AsyncViewWrap:
-    """Provides async view compatible support for DRF.
+    """Provides async view compatible support for DRF Views and ViewSets.
 
     This must be the first inherited class.
     """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Convert the sync only methods which have not been overwritten into async methods
-        for name in ['initial',
-                     'list', 'create', 'retrieve', 'update', 'destroy']:
-            method = getattr(self, name, None)
-            if not asyncio.iscoroutinefunction(method):
-                setattr(self, name, sync_to_async(method))
-
     @classmethod
     def as_view(cls, *args, **initkwargs):
         """Make Django process the view as an async view.
@@ -38,7 +28,7 @@ class AsyncViewWrap:
         self.headers = self.default_response_headers
 
         try:
-            await self.initial(request, *args, **kwargs)
+            await sync_to_async(self.initial)(request, *args, **kwargs)
 
             if request.method.lower() in self.http_method_names:
                 handler = getattr(self, request.method.lower(),
@@ -46,10 +36,11 @@ class AsyncViewWrap:
             else:
                 handler = self.http_method_not_allowed
 
-            # built-in handlers return responses directly
-            response = handler(request, *args, **kwargs)
-            if asyncio.iscoroutine(response):
-                response = await response
+            # accept both async and sync handlers
+            # built-in handlers are sync handlers
+            if not asyncio.iscoroutinefunction(handler):
+                handler = sync_to_async(handler)
+            response = await handler(request, *args, **kwargs)
 
         except Exception as exc:
             response = self.handle_exception(exc)
