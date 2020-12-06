@@ -93,7 +93,7 @@ class MessageAPIViewSet(AsyncViewWrap, GenericViewSet, CreateModelMixin, ListMod
         return m.Message.objects.filter(id__gte=id_from, chatroom__in=chatrooms).order_by('id')
 
     async def list(self, request, *args, **kwargs):
-        """If the requested queryset does not exist, wait at most 60s for the queryset.
+        """If the requested queryset does not exist, wait at most 30s for the queryset.
         """
         qs = self.get_queryset()
         if not await asy(qs.exists)():
@@ -104,7 +104,7 @@ class MessageAPIViewSet(AsyncViewWrap, GenericViewSet, CreateModelMixin, ListMod
 
             future = asyncio.Future()
             try:
-                await asyncio.wait_for(future, 60)
+                await asyncio.wait_for(future, 30)
             except asyncio.TimeoutError:
                 pass
         return await asy(super().list)(request, *args, **kwargs)
