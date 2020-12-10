@@ -7,7 +7,7 @@ from . import views
 
 router = DefaultRouter()
 router.register('users', views.UserAPIViewSet)
-router.register('friend-relations', views.FriendAPIViewSet)
+router.register('friend-relations', views.FriendRelationAPIViewSet)
 router.register('chatrooms', views.ChatroomAPIViewSet)
 router.register('messages', views.MessageAPIViewSet)
 

@@ -6,17 +6,21 @@ from rest_framework.response import Response
 from rest_framework.status import HTTP_201_CREATED, HTTP_204_NO_CONTENT
 from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import ParseError, AuthenticationFailed
+from rest_framework.decorators import action
 
 from django.contrib import auth
+from django.contrib.sessions.backends.base import SessionBase
+from django.db.models.query import QuerySet
+from django.dispatch.dispatcher import Signal
 from django.db.models.signals import post_save
+
+from .asyncviews import AsyncMixin
+from . import serializers as s
+from . import models as m
+from .decorators import require_params
 
 import asyncio
 from asgiref.sync import sync_to_async as asy
-
-from .asyncwrap import AsyncViewWrap
-from . import serializers as s
-from . import models as m
-
 
 
 class UserAPIViewSet(GenericViewSet, CreateModelMixin, RetrieveModelMixin):
@@ -36,14 +40,9 @@ class AuthAPIView(APIView):
     def get(self, request: Request):
         return Response(self.serialized_user)
 
-    def post(self, request: Request):
-        try:
-            username: str = request.data['username']
-            password: str = request.data['password']
-        except KeyError as key:
-            raise ParseError(f'`{key}` is required.')
-
-        if not (user := auth.authenticate(username=username, password=password)):
+    @require_params(essentials=['username', 'password'])
+    def post(self, request: Request, params):
+        if not (user := auth.authenticate(username=params['username'], password=params['password'])):
             raise AuthenticationFailed()
         auth.login(request, user)
         return Response(self.serialized_user, status=HTTP_201_CREATED)
@@ -57,11 +56,13 @@ class AuthAPIView(APIView):
         return s.UserSerializer(self.request.user).data
 
 
-class FriendAPIViewSet(GenericViewSet, ListModelMixin, CreateModelMixin, DestroyModelMixin):
+class FriendRelationAPIViewSet(AsyncMixin, GenericViewSet, ListModelMixin, CreateModelMixin, DestroyModelMixin):
     queryset = m.FriendRelation.objects.all()
     serializer_class = s.FriendRelationSerializer
 
     def get_queryset(self):
+        """Filter out the related ones.
+        """
         user = self.request.user
         return m.FriendRelation.objects.filter(m.m.Q(source_user=user) | m.m.Q(target_user=user)).order_by('id')
 
@@ -70,8 +71,9 @@ class ChatroomAPIViewSet(GenericViewSet, CreateModelMixin, ListModelMixin):
     queryset = m.Chatroom.objects.all()
     serializer_class = s.ChatroomSerializer
 
-    def get_queryset(self):
-        member_contains = self.request.query_params.get('member_contains')
+    @require_params(optionals={'member_contains': None})
+    def get_queryset(self, params):
+        member_contains = params['member_contains']
         if member_contains:
             try:
                 return m.Chatroom.objects.filter(members=member_contains)
@@ -81,28 +83,31 @@ class ChatroomAPIViewSet(GenericViewSet, CreateModelMixin, ListModelMixin):
             return super().get_queryset()
 
 
-class MessageAPIViewSet(AsyncViewWrap, GenericViewSet, CreateModelMixin, ListModelMixin):
+class MessageAPIViewSet(AsyncMixin, GenericViewSet, CreateModelMixin, ListModelMixin):
     queryset = m.Message.objects.all()
     serializer_class = s.MessageSerializer
 
-    def get_queryset(self):
+    @require_params(optionals={'from': 1})
+    def get_queryset(self, params):
         """Only show the messages that are related to the current user.
         """
-        id_from = int(self.request.query_params.get('from', 1))
         chatrooms = m.Chatroom.objects.filter(members=self.request.user)
-        return m.Message.objects.filter(id__gte=id_from, chatroom__in=chatrooms).order_by('id')
+        return m.Message.objects.filter(id__gte=params['from'], chatroom__in=chatrooms).order_by('id')
 
     async def list(self, request, *args, **kwargs):
-        """If the requested queryset does not exist, wait at most 30s for the queryset.
+        """Wait at most 30 seconds for the queryset's existence.
         """
-        qs = self.get_queryset()
+        qs: QuerySet = self.get_queryset()
         if not await asy(qs.exists)():
+            future = asyncio.Future()
+
             def callback(sender, **kwargs):
+                """{'signal': Signal, 'instance': Model, 'created': bool, 'update_fields': None, 'raw': bool, 'using': 'default'}
+                """
                 if qs.exists():
                     future.set_result(True)
-            post_save.connect(callback, sender=m.Message)
+            post_save.connect(callback, sender=qs.model)
 
-            future = asyncio.Future()
             try:
                 await asyncio.wait_for(future, 30)
             except asyncio.TimeoutError:

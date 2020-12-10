@@ -2,7 +2,7 @@ from asgiref.sync import sync_to_async
 import asyncio
 
 
-class AsyncViewWrap:
+class AsyncMixin:
     """Provides async view compatible support for DRF Views and ViewSets.
 
     This must be the first inherited class.

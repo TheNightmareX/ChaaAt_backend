@@ -1,6 +1,8 @@
 from rest_framework import serializers as s, validators as v
 from rest_framework.request import Request
+
 from . import models as m
+from .decorators import validation
 
 
 class ProfileSerializer(s.ModelSerializer):
@@ -39,23 +41,21 @@ class FriendRelationSerializer(s.ModelSerializer):
         data['source_user'] = self.context['request'].user
         return data
 
+    @validation
     def validate_target_user(self, value):
         """Prevent building relation with self.
         """
-        if value == self.context['request'].user:
-            raise s.ValidationError(
-                '`target_user` can not be the same as `source_user`')
-        return value
+        assert value != self.context['request'].user, \
+            '`target_user` can not be the same as `source_user`'
 
+    @validation
     def validate(self, data):
         """Prevent the inverse request if the relation has already accepted.
         """
-        if m.FriendRelation.objects.filter(source_user=data['target_user'],
-                                           target_user=data['source_user'],
-                                           accepted=True).exists():
-            raise s.ValidationError(
-                'The relation has already existed and accepted.')
-        return data
+        assert not m.FriendRelation.objects.filter(source_user=data['target_user'],
+                                                   target_user=data['source_user'],
+                                                   accepted=True).exists(), \
+            'The relation has already existed and accepted.'
 
     def to_representation(self, instance):
         """Serialize the user fields.
@@ -89,6 +89,12 @@ class ChatroomSerializer(s.ModelSerializer):
     class Meta:
         model = m.Chatroom
         fields = ['id', 'members']
+
+    @validation
+    def validate_members(self, value: list[int]):
+        MAX_MEMBERS = 10
+        assert len(value) <= MAX_MEMBERS, \
+            f'There should be at most {MAX_MEMBERS} members in a chatroom.'
 
 
 class MessageSerializer(s.ModelSerializer):
