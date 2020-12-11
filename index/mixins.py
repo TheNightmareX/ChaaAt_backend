@@ -6,6 +6,9 @@ class AsyncMixin:
     """Provides async view compatible support for DRF Views and ViewSets.
 
     This must be the first inherited class.
+
+        class MyViewSet(AsyncMixin, GenericViewSet):
+            pass
     """
     @classmethod
     def as_view(cls, *args, **initkwargs):
