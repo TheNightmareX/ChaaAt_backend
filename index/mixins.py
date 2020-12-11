@@ -1,3 +1,6 @@
+from rest_framework.response import Response
+from rest_framework import status
+
 from asgiref.sync import sync_to_async
 import asyncio
 
@@ -31,6 +34,7 @@ class AsyncMixin:
         self.headers = self.default_response_headers
 
         try:
+            # MODIFIED HERE
             await sync_to_async(self.initial)(request, *args, **kwargs)
 
             if request.method.lower() in self.http_method_names:
@@ -39,6 +43,7 @@ class AsyncMixin:
             else:
                 handler = self.http_method_not_allowed
 
+            # MODIFIED HERE
             # accept both async and sync handlers
             # built-in handlers are sync handlers
             if not asyncio.iscoroutinefunction(handler):
@@ -51,3 +56,25 @@ class AsyncMixin:
         self.response = self.finalize_response(
             request, response, *args, **kwargs)
         return self.response
+
+
+class AsyncCreateModelMixin:
+    """Make `create()` and `perform_create()` overridable.
+
+    Without inheriting this class, the event loop can't be used in these two methods when override them.
+
+    This must be inherited before `CreateModelMixin`.
+
+        class MyViewSet(AsyncMixin, GenericViewSet, AsyncCreateModelMixin, CreateModelMixin):
+            pass
+    """
+    async def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
+        # MODIFIED HERE
+        await self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+    async def perform_create(self, serializer):
+        await sync_to_async(serializer.save)()

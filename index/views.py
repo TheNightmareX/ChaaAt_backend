@@ -1,3 +1,5 @@
+from typing import Callable
+
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.mixins import CreateModelMixin, DestroyModelMixin, ListModelMixin, RetrieveModelMixin
@@ -9,12 +11,11 @@ from rest_framework.exceptions import ParseError, AuthenticationFailed
 from rest_framework.decorators import action
 
 from django.contrib import auth
-from django.contrib.sessions.backends.base import SessionBase
 from django.db.models.query import QuerySet
-from django.dispatch.dispatcher import Signal
+from django.dispatch import Signal
 from django.db.models.signals import post_save
 
-from .asyncviews import AsyncMixin
+from .mixins import AsyncMixin, AsyncCreateModelMixin
 from . import serializers as s
 from . import models as m
 from .decorators import require_params
@@ -23,7 +24,9 @@ import asyncio
 from asgiref.sync import sync_to_async as asy
 
 
-class UserAPIViewSet(GenericViewSet, CreateModelMixin, RetrieveModelMixin):
+class UserAPIViewSet(GenericViewSet,
+                     CreateModelMixin,
+                     RetrieveModelMixin):
     queryset = m.User.objects.all()
     serializer_class = s.UserSerializer
     lookup_field = 'username'
@@ -56,18 +59,86 @@ class AuthAPIView(APIView):
         return s.UserSerializer(self.request.user).data
 
 
-class FriendRelationAPIViewSet(AsyncMixin, GenericViewSet, ListModelMixin, CreateModelMixin, DestroyModelMixin):
+class FriendRelationAPIViewSet(AsyncMixin, GenericViewSet,
+                               ListModelMixin,
+                               AsyncCreateModelMixin, CreateModelMixin,
+                               DestroyModelMixin):
     queryset = m.FriendRelation.objects.all()
     serializer_class = s.FriendRelationSerializer
 
+    unsynced_updations_mapping: dict[str, list[int]] = {}
+    updation_callbacks: list[Callable[[m.FriendRelation], None]] = []
+
+    @property
+    def unsynced_updations(self):
+        """Returns the unsynced updations of the current user. (referenced by address)
+        """
+        key = self.request.session.session_key
+        self.unsynced_updations_mapping.setdefault(key, [])
+        return self.unsynced_updations_mapping[key]
+
     def get_queryset(self):
-        """Filter out the related ones.
+        super().get_queryset()
+        """Filter out the related ones. If the action is 'updation', extraly filter out the
+        updated ones.
         """
         user = self.request.user
-        return m.FriendRelation.objects.filter(m.m.Q(source_user=user) | m.m.Q(target_user=user)).order_by('id')
+        qs = m.FriendRelation.objects.filter(
+            m.m.Q(source_user=user) | m.m.Q(target_user=user)
+        )
+        if self.action == 'updations':
+            qs = qs.filter(id__in=self.unsynced_updations)
+        return qs.order_by('id')
+
+    def is_related_instance(self, instance: m.FriendRelation) -> bool:
+        """Whether the `FriendRelation` is related to the current user.
+        """
+        user = self.request.user
+        return instance.source_user == user or instance.target_user == user
+
+    async def perform_create(self, serializer: s.s.Serializer):
+        """Call the callbacks when a updation happens.
+        """
+        await super().perform_create(serializer)
+        instance = serializer.instance
+        self.unsynced_updations.append(instance.pk)
+        [callback(instance) for callback in self.updation_callbacks]
+        
+
+    def wait_for_updation(self) -> m.FriendRelation:
+        """Returns a `Future` which will be finished when a updation happens.
+        """
+        future = asyncio.Future()
+
+        def callback(instance: m.FriendRelation):
+            if self.is_related_instance(instance):
+                future.set_result(instance)
+                self.updation_callbacks.remove(callback)
+        self.updation_callbacks.append(callback)
+
+        return future
+
+    @action(['get', 'delete'], detail=False)
+    async def updations(self, request: Request):
+        data = None
+        if self.request.method == 'GET':
+            unsynced_relations = self.unsynced_updations
+
+            if not unsynced_relations:
+                try:
+                    await self.wait_for_updation(30)
+                except asyncio.TimeoutError:
+                    pass
+            qs = self.get_queryset()
+            serializer: s.s.Serializer = self.get_serializer(qs, many=True)
+            data = await asy(lambda: serializer.data)()
+        self.unsynced_updations.clear()
+        return Response(data)
 
 
-class ChatroomAPIViewSet(GenericViewSet, CreateModelMixin, ListModelMixin):
+class ChatroomAPIViewSet(GenericViewSet,
+                         CreateModelMixin,
+                         ListModelMixin):
     queryset = m.Chatroom.objects.all()
     serializer_class = s.ChatroomSerializer
 
@@ -83,7 +154,9 @@ class ChatroomAPIViewSet(GenericViewSet, CreateModelMixin, ListModelMixin):
             return super().get_queryset()
 
 
-class MessageAPIViewSet(AsyncMixin, GenericViewSet, CreateModelMixin, ListModelMixin):
+class MessageAPIViewSet(AsyncMixin, GenericViewSet,
+                        CreateModelMixin,
+                        ListModelMixin):
     queryset = m.Message.objects.all()
     serializer_class = s.MessageSerializer
 
@@ -100,13 +173,13 @@ class MessageAPIViewSet(AsyncMixin, GenericViewSet, CreateModelMixin, ListModelM
         qs: QuerySet = self.get_queryset()
         if not await asy(qs.exists)():
             future = asyncio.Future()
+            signal: Signal = post_save
 
-            def callback(sender, **kwargs):
-                """{'signal': Signal, 'instance': Model, 'created': bool, 'update_fields': None, 'raw': bool, 'using': 'default'}
-                """
+            def receiver(sender, **kwargs):
                 if qs.exists():
-                    future.set_result(True)
-            post_save.connect(callback, sender=qs.model)
+                    future.set_result(None)
+                    signal.disconnect(receiver)
+            signal.connect(receiver, sender=qs.model)
 
             try:
                 await asyncio.wait_for(future, 30)
