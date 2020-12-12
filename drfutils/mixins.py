@@ -74,8 +74,11 @@ class AsyncCreateModelMixin:
         await sync_to_async(serializer.is_valid)(
             raise_exception=True)  # MODIFIED HERE
         await self.perform_create(serializer)  # MODIFIED HERE
-        headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        data = await sync_to_async(lambda: serializer.data)()  # MODIFIED HERE
+        headers = self.get_success_headers(data)  # MODIFIED HERE
+        return Response(data,  # MODIFIED HERE
+                        status=status.HTTP_201_CREATED,
+                        headers=headers)
 
     async def perform_create(self, serializer):
         await sync_to_async(serializer.save)()

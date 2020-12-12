@@ -81,7 +81,7 @@ class FriendRelationAPIViewSet(AsyncMixin, GenericViewSet, UpdateManagerMixin,
         instance: m.FriendRelation = serializer.instance
         for field in ['source_user', 'target_user']:
             username = str(await asy(getattr)(instance, field))
-            update = ('save', serializer.data)
+            update = ('save', await asy(lambda: serializer.data)())
             self.commit_update(username, update)
 
     async def perform_destroy(self, instance):
