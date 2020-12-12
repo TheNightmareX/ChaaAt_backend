@@ -8,4 +8,4 @@ __pycache__/
 
 # Django
 /db.sqlite3
-securitysettings.py
+secretsettings.py

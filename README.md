@@ -15,7 +15,7 @@ pip install -r requirements.txt # 安装依赖
 在 ChaaAt_backend 目录下新建 securitysettings.py
 
 ```
-# securitysettings.py:
+# secretsettings.py:
 
 SECRET_KEY = 'x&q5tl2ehmw2s(j15$qb(()o4ooati&h=li5ds1n0lvp+xhf^m'
 # 生产部署请替换为自己的SECRET_KEY
