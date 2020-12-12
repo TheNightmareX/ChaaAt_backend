@@ -1,5 +1,3 @@
-from typing import Callable
-
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
 from rest_framework.mixins import CreateModelMixin, DestroyModelMixin, ListModelMixin, RetrieveModelMixin
@@ -15,12 +13,12 @@ from django.db.models.query import QuerySet
 from django.dispatch import Signal
 from django.db.models.signals import post_save
 
-from .mixins import AsyncMixin, AsyncCreateModelMixin
+from .mixins import AsyncMixin, AsyncCreateModelMixin, AsyncDestroyModelMixin
 from . import serializers as s
 from . import models as m
 from .decorators import require_params
 
-import asyncio
+import asyncio as aio
 from asgiref.sync import sync_to_async as asy
 
 
@@ -62,77 +60,92 @@ class AuthAPIView(APIView):
 class FriendRelationAPIViewSet(AsyncMixin, GenericViewSet,
                                ListModelMixin,
                                AsyncCreateModelMixin, CreateModelMixin,
-                               DestroyModelMixin):
+                               AsyncDestroyModelMixin, DestroyModelMixin):
     queryset = m.FriendRelation.objects.all()
     serializer_class = s.FriendRelationSerializer
 
-    unsynced_updations_mapping: dict[str, list[int]] = {}
-    updation_callbacks: list[Callable[[m.FriendRelation], None]] = []
-
-    @property
-    def unsynced_updations(self):
-        """Returns the unsynced updations of the current user. (referenced by address)
-        """
-        key = self.request.session.session_key
-        self.unsynced_updations_mapping.setdefault(key, [])
-        return self.unsynced_updations_mapping[key]
+    __next_update_waiters: dict[str, aio.Future] = {}
+    __updates_cache_pool: dict[str, list[tuple[str, int]]] = {}
 
     def get_queryset(self):
         super().get_queryset()
-        """Filter out the related ones. If the action is 'updation', extraly filter out the
-        updated ones.
+        """Filter out the related ones.
         """
         user = self.request.user
         qs = m.FriendRelation.objects.filter(
             m.m.Q(source_user=user) | m.m.Q(target_user=user)
         )
-        if self.action == 'updations':
-            qs = qs.filter(id__in=self.unsynced_updations)
         return qs.order_by('id')
 
-    def is_related_instance(self, instance: m.FriendRelation) -> bool:
-        """Whether the `FriendRelation` is related to the current user.
+    def commit_update(self, key: str, update):
+        """Send or cache the update.
         """
-        user = self.request.user
-        return instance.source_user == user or instance.target_user == user
+        if key in self.__next_update_waiters:
+            # waiting, send update
+            self.__next_update_waiters[key].set_result(update)
+            del self.__next_update_waiters[key]
+        else:
+            # not waiting, cache update
+            self.__updates_cache_pool.setdefault(key, [])
+            self.__updates_cache_pool[key].append(update)
+
+    async def wait_update(self, key: str, timeout: int = 30):
+        """Return the next update or None if it timeout.
+        """
+        future = aio.Future()
+        self.__next_update_waiters[key] = future
+        update = None
+        try:
+            update = await aio.wait_for(future, timeout)
+        except aio.TimeoutError:
+            pass
+        return update
+
+    def pop_cached_updates(self, key: str):
+        """Return and clear the cached updates.
+        """
+        updates = self.__updates_cache_pool.get(key, [])
+        self.__updates_cache_pool[key] = []
+        return updates
 
     async def perform_create(self, serializer: s.s.Serializer):
-        """Call the callbacks when a updation happens.
+        """Commit the updation.
         """
         await super().perform_create(serializer)
-        instance = serializer.instance
-        self.unsynced_updations.append(instance.pk)
-        [callback(instance) for callback in self.updation_callbacks]
-        
+        instance: m.FriendRelation = serializer.instance
+        for field in ['source_user', 'target_user']:
+            username = str(await asy(getattr)(instance, field))
+            update = ('save', serializer.data)
+            self.commit_update(username, update)
 
-    def wait_for_updation(self) -> m.FriendRelation:
-        """Returns a `Future` which will be finished when a updation happens.
+    async def perform_destroy(self, instance):
+        """Commit the updation
         """
-        future = asyncio.Future()
-
-        def callback(instance: m.FriendRelation):
-            if self.is_related_instance(instance):
-                future.set_result(instance)
-                self.updation_callbacks.remove(callback)
-        self.updation_callbacks.append(callback)
-
-        return future
+        pk = instance.pk
+        await super().perform_destroy(instance)
+        for field in ['source_user', 'target_user']:
+            username = str(await asy(getattr)(instance, field))
+            update = ('delete', pk)
+            self.commit_update(username, update)
 
     @action(['get', 'delete'], detail=False)
-    async def updations(self, request: Request):
+    async def updates(self, request: Request):
         data = None
-        if self.request.method == 'GET':
-            unsynced_relations = self.unsynced_updations
-
-            if not unsynced_relations:
-                try:
-                    await self.wait_for_updation(30)
-                except asyncio.TimeoutError:
-                    pass
-            qs = self.get_queryset()
-            serializer: s.s.Serializer = self.get_serializer(qs, many=True)
-            data = await asy(lambda: serializer.data)()
-        self.unsynced_updations.clear()
+        username = str(request.user)
+        method: str = request.method
+        if method == 'GET':
+            # get updates
+            data = []
+            if updates := self.pop_cached_updates(username):
+                # cache exists: return the cached updates
+                data.extend(updates)
+            else:
+                # cache not exists: return the next update
+                if update := await self.wait_update(username):
+                    data.append(update)
+        else:
+            # clear the cached updates
+            self.pop_cached_updates(username)
         return Response(data)
 
 
@@ -172,7 +185,7 @@ class MessageAPIViewSet(AsyncMixin, GenericViewSet,
         """
         qs: QuerySet = self.get_queryset()
         if not await asy(qs.exists)():
-            future = asyncio.Future()
+            future = aio.Future()
             signal: Signal = post_save
 
             def receiver(sender, **kwargs):
@@ -182,7 +195,7 @@ class MessageAPIViewSet(AsyncMixin, GenericViewSet,
             signal.connect(receiver, sender=qs.model)
 
             try:
-                await asyncio.wait_for(future, 30)
-            except asyncio.TimeoutError:
+                await aio.wait_for(future, 30)
+            except aio.TimeoutError:
                 pass
         return await asy(super().list)(request, *args, **kwargs)

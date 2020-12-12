@@ -34,8 +34,8 @@ class AsyncMixin:
         self.headers = self.default_response_headers
 
         try:
-            # MODIFIED HERE
-            await sync_to_async(self.initial)(request, *args, **kwargs)
+            await sync_to_async(self.initial)(
+                request, *args, **kwargs)  # MODIFIED HERE
 
             if request.method.lower() in self.http_method_names:
                 handler = getattr(self, request.method.lower(),
@@ -43,12 +43,11 @@ class AsyncMixin:
             else:
                 handler = self.http_method_not_allowed
 
-            # MODIFIED HERE
             # accept both async and sync handlers
             # built-in handlers are sync handlers
-            if not asyncio.iscoroutinefunction(handler):
-                handler = sync_to_async(handler)
-            response = await handler(request, *args, **kwargs)
+            if not asyncio.iscoroutinefunction(handler):  # MODIFIED HERE
+                handler = sync_to_async(handler)  # MODIFIED HERE
+            response = await handler(request, *args, **kwargs)  # MODIFIED HERE
 
         except Exception as exc:
             response = self.handle_exception(exc)
@@ -70,11 +69,30 @@ class AsyncCreateModelMixin:
     """
     async def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
-        await sync_to_async(serializer.is_valid)(raise_exception=True)
-        # MODIFIED HERE
-        await self.perform_create(serializer)
+        await sync_to_async(serializer.is_valid)(
+            raise_exception=True)  # MODIFIED HERE
+        await self.perform_create(serializer)  # MODIFIED HERE
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     async def perform_create(self, serializer):
         await sync_to_async(serializer.save)()
+
+
+class AsyncDestroyModelMixin:
+    """Make `destroy()` and `perform_destroy()` overridable.
+
+    Without inheriting this class, the event loop can't be used in these two methods when override them.
+
+    This must be inherited before `DestroyModelMixin`.
+
+        class MyViewSet(AsyncMixin, GenericViewSet, AsyncDestroyModelMixin, DestroyModelMixin):
+            pass
+    """
+    async def destroy(self, request, *args, **kwargs):
+        instance = await sync_to_async(self.get_object)()  # MODIFIED HERE
+        await self.perform_destroy(instance)  # MODIFIED HERE
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    async def perform_destroy(self, instance):
+        await sync_to_async(instance.delete)()  # MODIFIED HERE
