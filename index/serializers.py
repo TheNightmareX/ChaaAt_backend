@@ -2,7 +2,7 @@ from rest_framework import serializers as s, validators as v
 from rest_framework.request import Request
 
 from . import models as m
-from .decorators import validation
+from drfutils.decorators import validation
 
 
 class ProfileSerializer(s.ModelSerializer):

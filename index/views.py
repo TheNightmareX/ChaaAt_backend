@@ -13,10 +13,10 @@ from django.db.models.query import QuerySet
 from django.dispatch import Signal
 from django.db.models.signals import post_save
 
-from .mixins import AsyncMixin, AsyncCreateModelMixin, AsyncDestroyModelMixin
+from drfutils.mixins import AsyncMixin, AsyncCreateModelMixin, AsyncDestroyModelMixin
 from . import serializers as s
 from . import models as m
-from .decorators import require_params
+from drfutils.decorators import require_params
 
 import asyncio as aio
 from asgiref.sync import sync_to_async as asy

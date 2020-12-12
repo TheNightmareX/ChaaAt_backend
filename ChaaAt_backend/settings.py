@@ -53,6 +53,7 @@ ASGI_APPLICATION = "ChaaAt_backend.asgi.application"
 
 INSTALLED_APPS = [
     'rest_framework',
+    'drfutils',
     'index',
     'django.contrib.admin',
     'django.contrib.auth',
