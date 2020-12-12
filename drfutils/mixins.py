@@ -128,10 +128,7 @@ class UpdateManagerMixin:
         """
         if key in self.__update_waiters:
             # waiting, send update
-            try:
-                self.__update_waiters[key].set_result(update)
-            finally:
-                del self.__update_waiters[key]
+            self.__update_waiters[key].set_result(update)
         else:
             # not waiting, cache update
             self.__updates_cache_pool.setdefault(key, [])
@@ -147,6 +144,8 @@ class UpdateManagerMixin:
             update = await aio.wait_for(future, timeout)
         except aio.TimeoutError:
             pass
+        finally:
+            del self.__update_waiters[key]
         return update
 
     def pop_cached_updates(self, key: str):
