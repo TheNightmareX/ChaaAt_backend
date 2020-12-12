@@ -1,8 +1,10 @@
+from typing import Any
+
 from rest_framework.response import Response
 from rest_framework import status
 
 from asgiref.sync import sync_to_async
-import asyncio
+import asyncio as aio
 
 
 class AsyncMixin:
@@ -45,7 +47,7 @@ class AsyncMixin:
 
             # accept both async and sync handlers
             # built-in handlers are sync handlers
-            if not asyncio.iscoroutinefunction(handler):  # MODIFIED HERE
+            if not aio.iscoroutinefunction(handler):  # MODIFIED HERE
                 handler = sync_to_async(handler)  # MODIFIED HERE
             response = await handler(request, *args, **kwargs)  # MODIFIED HERE
 
@@ -96,3 +98,41 @@ class AsyncDestroyModelMixin:
 
     async def perform_destroy(self, instance):
         await sync_to_async(instance.delete)()  # MODIFIED HERE
+
+
+class UpdateManagerMixin:
+    """Provide methods about updates.
+    """
+    __update_waiters: dict[Any, aio.Future] = {}
+    __updates_cache_pool: dict[Any, list[Any]] = {}
+
+    def commit_update(self, key: str, update):
+        """Send or cache the update.
+        """
+        if key in self.__update_waiters:
+            # waiting, send update
+            self.__update_waiters[key].set_result(update)
+            del self.__update_waiters[key]
+        else:
+            # not waiting, cache update
+            self.__updates_cache_pool.setdefault(key, [])
+            self.__updates_cache_pool[key].append(update)
+
+    async def wait_update(self, key: str, timeout: int = 30):
+        """Return the next update or None if it timeout.
+        """
+        future = aio.Future()
+        self.__update_waiters[key] = future
+        update = None
+        try:
+            update = await aio.wait_for(future, timeout)
+        except aio.TimeoutError:
+            pass
+        return update
+
+    def pop_cached_updates(self, key: str):
+        """Return and clear the cached updates.
+        """
+        updates = self.__updates_cache_pool.get(key, [])
+        self.__updates_cache_pool[key] = []
+        return updates

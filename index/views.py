@@ -13,7 +13,7 @@ from django.db.models.query import QuerySet
 from django.dispatch import Signal
 from django.db.models.signals import post_save
 
-from drfutils.mixins import AsyncMixin, AsyncCreateModelMixin, AsyncDestroyModelMixin
+from drfutils.mixins import AsyncMixin, AsyncCreateModelMixin, AsyncDestroyModelMixin, UpdateManagerMixin
 from . import serializers as s
 from . import models as m
 from drfutils.decorators import require_params
@@ -57,15 +57,12 @@ class AuthAPIView(APIView):
         return s.UserSerializer(self.request.user).data
 
 
-class FriendRelationAPIViewSet(AsyncMixin, GenericViewSet,
+class FriendRelationAPIViewSet(AsyncMixin, GenericViewSet, UpdateManagerMixin,
                                ListModelMixin,
                                AsyncCreateModelMixin, CreateModelMixin,
                                AsyncDestroyModelMixin, DestroyModelMixin):
     queryset = m.FriendRelation.objects.all()
     serializer_class = s.FriendRelationSerializer
-
-    __next_update_waiters: dict[str, aio.Future] = {}
-    __updates_cache_pool: dict[str, list[tuple[str, int]]] = {}
 
     def get_queryset(self):
         super().get_queryset()
@@ -76,37 +73,6 @@ class FriendRelationAPIViewSet(AsyncMixin, GenericViewSet,
             m.m.Q(source_user=user) | m.m.Q(target_user=user)
         )
         return qs.order_by('id')
-
-    def commit_update(self, key: str, update):
-        """Send or cache the update.
-        """
-        if key in self.__next_update_waiters:
-            # waiting, send update
-            self.__next_update_waiters[key].set_result(update)
-            del self.__next_update_waiters[key]
-        else:
-            # not waiting, cache update
-            self.__updates_cache_pool.setdefault(key, [])
-            self.__updates_cache_pool[key].append(update)
-
-    async def wait_update(self, key: str, timeout: int = 30):
-        """Return the next update or None if it timeout.
-        """
-        future = aio.Future()
-        self.__next_update_waiters[key] = future
-        update = None
-        try:
-            update = await aio.wait_for(future, timeout)
-        except aio.TimeoutError:
-            pass
-        return update
-
-    def pop_cached_updates(self, key: str):
-        """Return and clear the cached updates.
-        """
-        updates = self.__updates_cache_pool.get(key, [])
-        self.__updates_cache_pool[key] = []
-        return updates
 
     async def perform_create(self, serializer: s.s.Serializer):
         """Commit the updation.
