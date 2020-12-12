@@ -6,14 +6,11 @@ from rest_framework.response import Response
 from rest_framework.status import HTTP_201_CREATED, HTTP_204_NO_CONTENT
 from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import ParseError, AuthenticationFailed
-from rest_framework.decorators import action
 
+from django.db.models.manager import BaseManager
 from django.contrib import auth
-from django.db.models.query import QuerySet
-from django.dispatch import Signal
-from django.db.models.signals import post_save
 
-from drfutils.mixins import AsyncMixin, AsyncCreateModelMixin, AsyncDestroyModelMixin, UpdateManagerMixin
+from drfutils.mixins import AsyncMixin, AsyncCreateModelMixin, AsyncDestroyModelMixin, UpdateManagerMixin, UpdateActionMixin
 from . import serializers as s
 from . import models as m
 from drfutils.decorators import require_params
@@ -57,7 +54,7 @@ class AuthAPIView(APIView):
         return s.UserSerializer(self.request.user).data
 
 
-class FriendRelationAPIViewSet(AsyncMixin, GenericViewSet, UpdateManagerMixin,
+class FriendRelationAPIViewSet(AsyncMixin, GenericViewSet, UpdateManagerMixin, UpdateActionMixin,
                                ListModelMixin,
                                AsyncCreateModelMixin, CreateModelMixin,
                                AsyncDestroyModelMixin, DestroyModelMixin):
@@ -94,26 +91,6 @@ class FriendRelationAPIViewSet(AsyncMixin, GenericViewSet, UpdateManagerMixin,
             update = ('delete', pk)
             self.commit_update(username, update)
 
-    @action(['get', 'delete'], detail=False)
-    async def updates(self, request: Request):
-        data = None
-        username = str(request.user)
-        method: str = request.method
-        if method == 'GET':
-            # get updates
-            data = []
-            if updates := self.pop_cached_updates(username):
-                # cache exists: return the cached updates
-                data.extend(updates)
-            else:
-                # cache not exists: return the next update
-                if update := await self.wait_update(username):
-                    data.append(update)
-        else:
-            # clear the cached updates
-            self.pop_cached_updates(username)
-        return Response(data)
-
 
 class ChatroomAPIViewSet(GenericViewSet,
                          CreateModelMixin,
@@ -133,35 +110,23 @@ class ChatroomAPIViewSet(GenericViewSet,
             return super().get_queryset()
 
 
-class MessageAPIViewSet(AsyncMixin, GenericViewSet,
-                        CreateModelMixin,
+class MessageAPIViewSet(AsyncMixin, GenericViewSet, UpdateManagerMixin, UpdateActionMixin,
+                        AsyncCreateModelMixin, CreateModelMixin,
                         ListModelMixin):
     queryset = m.Message.objects.all()
     serializer_class = s.MessageSerializer
 
-    @require_params(optionals={'from': 1})
-    def get_queryset(self, params):
+    def get_queryset(self):
         """Only show the messages that are related to the current user.
         """
         chatrooms = m.Chatroom.objects.filter(members=self.request.user)
-        return m.Message.objects.filter(id__gte=params['from'], chatroom__in=chatrooms).order_by('id')
+        return m.Message.objects.filter(chatroom__in=chatrooms).order_by('id')
 
-    async def list(self, request, *args, **kwargs):
-        """Wait at most 30 seconds for the queryset's existence.
-        """
-        qs: QuerySet = self.get_queryset()
-        if not await asy(qs.exists)():
-            future = aio.Future()
-            signal: Signal = post_save
-
-            def receiver(sender, **kwargs):
-                if qs.exists():
-                    future.set_result(None)
-                    signal.disconnect(receiver)
-            signal.connect(receiver, sender=qs.model)
-
-            try:
-                await aio.wait_for(future, 30)
-            except aio.TimeoutError:
-                pass
-        return await asy(super().list)(request, *args, **kwargs)
+    async def perform_create(self, serializer: s.s.Serializer):
+        await super().perform_create(serializer)
+        instance: m.Message = serializer.instance
+        data = serializer.data
+        chatroom: m.Chatroom = instance.chatroom
+        members: BaseManager = chatroom.members
+        usernames = await asy(lambda: [str(user) for user in members.all()])()
+        [self.commit_update(username, data) for username in usernames]

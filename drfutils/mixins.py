@@ -1,6 +1,8 @@
 from typing import Any
 
 from rest_framework.response import Response
+from rest_framework.request import Request
+from rest_framework.decorators import action
 from rest_framework import status
 
 from asgiref.sync import sync_to_async
@@ -106,16 +108,30 @@ class AsyncDestroyModelMixin:
 class UpdateManagerMixin:
     """Provide methods about updates.
     """
-    __update_waiters: dict[Any, aio.Future] = {}
-    __updates_cache_pool: dict[Any, list[Any]] = {}
+    __all_update_waiters: dict[str, dict[Any, aio.Future]] = {}
+    __all_updates_cache_pools: dict[str, dict[Any, list[Any]]] = {}
+
+    @property
+    def __update_waiters(self):
+        key = hash(self.__class__)
+        self.__all_update_waiters.setdefault(key, {})
+        return self.__all_update_waiters[key]
+
+    @property
+    def __updates_cache_pool(self):
+        key = hash(self.__class__)
+        self.__all_updates_cache_pools.setdefault(key, {})
+        return self.__all_updates_cache_pools[hash(self.__class__)]
 
     def commit_update(self, key: str, update):
         """Send or cache the update.
         """
         if key in self.__update_waiters:
             # waiting, send update
-            self.__update_waiters[key].set_result(update)
-            del self.__update_waiters[key]
+            try:
+                self.__update_waiters[key].set_result(update)
+            finally:
+                del self.__update_waiters[key]
         else:
             # not waiting, cache update
             self.__updates_cache_pool.setdefault(key, [])
@@ -139,3 +155,37 @@ class UpdateManagerMixin:
         updates = self.__updates_cache_pool.get(key, [])
         self.__updates_cache_pool[key] = []
         return updates
+
+
+class UpdateActionMixin:
+    """Provide a view set action which can get or clear the updates.
+
+    Use it like this:
+
+        class MyViewSet(AsyncMixin, GenericViewSet, UpdateManageMixin, UpdateActionMixin, ...):
+            pass
+    """
+    def get_updates_key(self):
+        """Returns the key used to get the updates.
+        """
+        return str(self.request.user)
+
+    @action(methods=['get', 'delete'], detail=False)
+    async def updates(self, request: Request):
+        data = None
+        key = self.get_updates_key()
+        method: str = request.method
+        if method == 'GET':
+            # get updates
+            data = []
+            if updates := self.pop_cached_updates(key):
+                # cache exists: return the cached updates
+                data.extend(updates)
+            else:
+                # cache not exists: return the next update
+                if update := await self.wait_update(key):
+                    data.append(update)
+        else:
+            # clear the cached updates
+            self.pop_cached_updates(key)
+        return Response(data)
