@@ -137,16 +137,26 @@ class UpdateManagerMixin:
     async def wait_update(self, key: str, timeout: int = 30):
         """Return the next update or None if it timeout.
         """
-        future = aio.Future()
-        self.__update_waiters[key] = future
+        # An overlap means that another call occurs before
+        # the previous call with the same key is completed.
+        waiters = self.__update_waiters
+        future = waiters.get(key, aio.Future())  # prevent overlaps
+        waiters[key] = future
+
         update = None
         try:
             update = await aio.wait_for(future, timeout)
         except aio.TimeoutError:
             pass
         finally:
-            del self.__update_waiters[key]
-        return update
+            # If the request is canceled, any statements outside the
+            # `finally` statement will be killed and never executed.
+            if key in waiters:  # prevent overlaps
+                del waiters[key]
+            # Put the `return` statement inside the `finally` statement
+            # because it will block forever when the request is canceled
+            # if the `return` statement is outside.
+            return update
 
     def pop_cached_updates(self, key: str):
         """Return and clear the cached updates.
@@ -164,6 +174,7 @@ class UpdateActionMixin:
         class MyViewSet(AsyncMixin, GenericViewSet, UpdateManageMixin, UpdateActionMixin, ...):
             pass
     """
+
     def get_updates_key(self):
         """Returns the key used to get the updates.
         """
