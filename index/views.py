@@ -1,11 +1,13 @@
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
-from rest_framework.mixins import CreateModelMixin, DestroyModelMixin, ListModelMixin, RetrieveModelMixin
+from rest_framework.mixins import ListModelMixin, CreateModelMixin, RetrieveModelMixin, DestroyModelMixin
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.status import HTTP_201_CREATED, HTTP_204_NO_CONTENT
+from rest_framework.filters import SearchFilter
 from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import ParseError, AuthenticationFailed
+from rest_framework.pagination import PageNumberPagination
 
 from django.db.models.manager import BaseManager
 from django.contrib import auth
@@ -19,12 +21,20 @@ import asyncio as aio
 from asgiref.sync import sync_to_async as asy
 
 
+class SmallPageNumberPagination(PageNumberPagination):
+    page_size = 10
+
+
 class UserAPIViewSet(GenericViewSet,
+                     ListModelMixin,
                      CreateModelMixin,
                      RetrieveModelMixin):
     queryset = m.User.objects.all()
     serializer_class = s.UserSerializer
     lookup_field = 'username'
+    filter_backends = [SearchFilter]
+    search_fields = ['username']
+    pagination_class = SmallPageNumberPagination
 
     def get_permissions(self):
         if self.action == 'create':
