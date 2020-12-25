@@ -7,7 +7,6 @@ from rest_framework.status import HTTP_201_CREATED, HTTP_204_NO_CONTENT
 from rest_framework.filters import SearchFilter
 from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import ParseError, AuthenticationFailed
-from rest_framework.pagination import PageNumberPagination
 
 from django.db.models.manager import BaseManager
 from django.contrib import auth
@@ -20,9 +19,7 @@ from drfutils.decorators import require_params
 import asyncio as aio
 from asgiref.sync import sync_to_async as asy
 
-
-class SmallPageNumberPagination(PageNumberPagination):
-    page_size = 10
+from .paginations import SmallPageNumberPagination
 
 
 class UserAPIViewSet(GenericViewSet,
