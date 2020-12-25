@@ -103,6 +103,12 @@ class MessageSerializer(s.ModelSerializer):
         fields = ['id', 'text', 'sender', 'chatroom', 'creation_time']
         read_only_fields = ['sender']
 
+    def validate_chatroom(self, chatroom: m.Chatroom):
+        request: Request = self.context['request']
+        assert chatroom.members.filter(pk=request.user.pk).exists(), \
+            f"Require the user to be a member of the chatroom."
+        return chatroom
+
     def create(self, validated_data):
         # Use the current user as the value of the `sender` field.
         request: Request = self.context['request']
