@@ -13,6 +13,7 @@ router.register('messages', views.MessageAPIViewSet)
 
 urlpatterns = [
     path('auth/', views.AuthAPIView.as_view()),
+    path('updates/', views.UpdateAPIView.as_view())
 ]
 
 urlpatterns += router.urls

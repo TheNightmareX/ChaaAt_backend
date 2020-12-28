@@ -1,12 +1,8 @@
-from typing import Any
-
-from rest_framework.response import Response
-from rest_framework.request import Request
-from rest_framework.decorators import action
-from rest_framework import status
+import asyncio as aio
 
 from asgiref.sync import sync_to_async
-import asyncio as aio
+from rest_framework import status
+from rest_framework.response import Response
 
 
 class AsyncMixin:
@@ -103,99 +99,3 @@ class AsyncDestroyModelMixin:
 
     async def perform_destroy(self, instance):
         await sync_to_async(instance.delete)()  # MODIFIED HERE
-
-
-class UpdateManagerMixin:
-    """Provide methods about updates.
-    """
-    __all_update_waiters: dict[str, dict[Any, aio.Future]] = {}
-    __all_updates_cache_pools: dict[str, dict[Any, list[Any]]] = {}
-
-    @property
-    def __update_waiters(self):
-        key = hash(self.__class__)
-        self.__all_update_waiters.setdefault(key, {})
-        return self.__all_update_waiters[key]
-
-    @property
-    def __updates_cache_pool(self):
-        key = hash(self.__class__)
-        self.__all_updates_cache_pools.setdefault(key, {})
-        return self.__all_updates_cache_pools[hash(self.__class__)]
-
-    def commit_update(self, key: str, update):
-        """Send or cache the update.
-        """
-        if key in self.__update_waiters:
-            # waiting, send update
-            self.__update_waiters[key].set_result(update)
-        else:
-            # not waiting, cache update
-            self.__updates_cache_pool.setdefault(key, [])
-            self.__updates_cache_pool[key].append(update)
-
-    async def wait_update(self, key: str, timeout: int = 30):
-        """Return the next update or None if it timeout.
-        """
-        # An overlap means that another call occurs before
-        # the previous call with the same key is completed.
-        waiters = self.__update_waiters
-        future = waiters.get(key, aio.Future())  # prevent overlaps
-        waiters[key] = future
-
-        update = None
-        try:
-            update = await aio.wait_for(future, timeout)
-        except aio.TimeoutError:
-            pass
-        finally:
-            # If the request is canceled, any statements outside the
-            # `finally` statement will be killed and never executed.
-            if key in waiters:  # prevent overlaps
-                del waiters[key]
-            # Put the `return` statement inside the `finally` statement
-            # because it will block forever when the request is canceled
-            # if the `return` statement is outside.
-            return update
-
-    def pop_cached_updates(self, key: str):
-        """Return and clear the cached updates.
-        """
-        updates = self.__updates_cache_pool.get(key, [])
-        self.__updates_cache_pool[key] = []
-        return updates
-
-
-class UpdateActionMixin:
-    """Provide a view set action which can get or clear the updates.
-
-    Use it like this:
-
-        class MyViewSet(AsyncMixin, GenericViewSet, UpdateManageMixin, UpdateActionMixin, ...):
-            pass
-    """
-
-    def get_updates_key(self):
-        """Returns the key used to get the updates.
-        """
-        return str(self.request.user)
-
-    @action(methods=['get', 'delete'], detail=False)
-    async def updates(self, request: Request):
-        data = None
-        key = self.get_updates_key()
-        method: str = request.method
-        if method == 'GET':
-            # get updates
-            data = []
-            if updates := self.pop_cached_updates(key):
-                # cache exists: return the cached updates
-                data.extend(updates)
-            else:
-                # cache not exists: return the next update
-                if update := await self.wait_update(key):
-                    data.append(update)
-        else:
-            # clear the cached updates
-            self.pop_cached_updates(key)
-        return Response(data)

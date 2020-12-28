@@ -120,7 +120,8 @@ class MessageSerializer(s.ModelSerializer):
         relevant_chatrooms = m.Chatroom.objects.filter(members=request.user)
         relevant_messages = m.Message.objects.filter(
             chatroom__in=relevant_chatrooms).order_by('-id')
-        if relevant_messages.count() > QUOTA:  # 500 messages take up at most 20kb of space
+        # 500 messages take up at most 20kb of space
+        if relevant_messages.count() > QUOTA:
             for message in relevant_messages[QUOTA + 1:]:
                 print('delete')
                 message: m.Message
