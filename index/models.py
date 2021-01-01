@@ -13,7 +13,7 @@ class FriendRelation(m.Model):
     target_user = m.ForeignKey(User, on_delete=m.CASCADE,
                                related_name='friend_relations_received')
     accepted = m.BooleanField(default=False)
-    chatroom = m.ForeignKey(Chatroom, on_delete=m.CASCADE)
+    chatroom = m.ForeignKey(Chatroom, on_delete=m.CASCADE, related_name='+')
 
     class Meta:
         constraints = [
@@ -32,6 +32,6 @@ class FriendRelation(m.Model):
 
 class Message(m.Model):
     text = m.TextField(max_length=300)
-    sender = m.ForeignKey(User, on_delete=m.CASCADE)
-    chatroom = m.ForeignKey(Chatroom, on_delete=m.CASCADE)
+    sender = m.ForeignKey(User, on_delete=m.CASCADE, related_name='messages_sent')
+    chatroom = m.ForeignKey(Chatroom, on_delete=m.CASCADE, related_name='messages')
     creation_time = m.DateTimeField(auto_now_add=True)
