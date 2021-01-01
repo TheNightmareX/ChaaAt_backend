@@ -119,7 +119,7 @@ class MessageSerializer(s.ModelSerializer[m.Message]):
     def validate_chatroom(self, chatroom: m.Chatroom):
         request: Request = self.context['request']
         # `ManyRelatedManager` actually
-        member_manager: BaseManager[m.Chatroom] = chatroom.members
+        member_manager: BaseManager[m.User] = chatroom.members
         assert member_manager.filter(pk=request.user.pk).exists(), \
             f"Require the user to be a member of the chatroom."
         return chatroom
