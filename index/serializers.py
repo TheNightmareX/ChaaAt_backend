@@ -18,12 +18,6 @@ def ensure_quota(qs: QuerySet[m.m.Model], quota: int):
             obj.delete()
 
 
-class ProfileSerializer(s.ModelSerializer[m.Profile]):
-    class Meta:
-        model = m.Profile
-        fields = ['friends']
-
-
 class UserSerializer(s.ModelSerializer[m.User]):
     class Meta:
         model = m.User

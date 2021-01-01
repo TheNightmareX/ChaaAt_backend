@@ -2,11 +2,6 @@ from typing import Any
 from django.contrib.auth.models import User
 from django.db import models as m
 
-
-class Profile(m.Model):
-    user = m.OneToOneField(User, on_delete=m.CASCADE)
-
-
 class Chatroom(m.Model):
     members = m.ManyToManyField(User)
 
