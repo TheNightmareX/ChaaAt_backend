@@ -1,8 +1,6 @@
 from collections import OrderedDict
 from typing import Any
 
-from django.contrib.auth.models import UserManager
-from django.db.models.manager import BaseManager
 from django.db.models.query import QuerySet
 from drfutils.decorators import validation
 from rest_framework import serializers as s
@@ -25,9 +23,8 @@ class UserSerializer(s.ModelSerializer[m.User]):
         extra_kwargs = {'password': {'write_only': True}}
 
     def create(self, validated_data: dict[str, str]):
-        user_manager: UserManager[m.User] = m.User.objects
-        user = user_manager.create_user(username=validated_data['username'],
-                                        password=validated_data['password'])
+        user = m.User.objects.create_user(username=validated_data['username'],
+                                          password=validated_data['password'])
         return user
 
 
@@ -77,7 +74,7 @@ class FriendRelationSerializer(s.ModelSerializer[m.FriendRelation]):
     def create(self, validated_data: dict[str, Any]):
         """Accept the relation if both of the users have requested the relation towards each other.
         """
-        inverse_relations: BaseManager[m.FriendRelation] = m.FriendRelation.objects.filter(
+        inverse_relations = m.FriendRelation.objects.filter(
             source_user=validated_data['target_user'],
             target_user=validated_data['source_user'],
             accepted=False,
@@ -88,8 +85,7 @@ class FriendRelationSerializer(s.ModelSerializer[m.FriendRelation]):
             inverse_relation.save()
             return inverse_relation
         else:
-            chatroom_manager: BaseManager[m.Chatroom] = m.Chatroom.objects
-            chatroom = chatroom_manager.create()
+            chatroom = m.Chatroom.objects.create()
             chatroom.members.add(validated_data['source_user'],
                                  validated_data['target_user'])
             chatroom.save()
@@ -119,8 +115,7 @@ class MessageSerializer(s.ModelSerializer[m.Message]):
     def validate_chatroom(self, chatroom: m.Chatroom):
         request: Request = self.context['request']
         # `ManyRelatedManager` actually
-        member_manager: BaseManager[m.User] = chatroom.members
-        assert member_manager.filter(pk=request.user.pk).exists(), \
+        assert chatroom.members.filter(pk=request.user.pk).exists(), \
             f"Require the user to be a member of the chatroom."
         return chatroom
 

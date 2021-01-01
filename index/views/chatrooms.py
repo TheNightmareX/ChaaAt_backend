@@ -1,6 +1,5 @@
 from typing import Any
 
-from django.db.models.manager import BaseManager
 from django.db.models.query import QuerySet
 from drfutils.decorators import require_params
 from rest_framework.exceptions import ParseError
@@ -22,8 +21,7 @@ class ChatroomAPIViewSet(GenericViewSet,
         member_contains = params['member_contains']
         if member_contains:
             try:
-                chatroom_manager: BaseManager[m.Chatroom] = m.Chatroom.objects
-                return chatroom_manager.filter(members=member_contains)
+                return m.Chatroom.objects.filter(members=member_contains)
             except ValueError as e:
                 raise ParseError(str(e))
         else:

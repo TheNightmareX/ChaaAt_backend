@@ -1,5 +1,4 @@
 from asgiref.sync import sync_to_async as asy
-from django.db.models.manager import BaseManager
 from drfutils.mixins import AsyncCreateModelMixin, AsyncMixin
 from rest_framework.mixins import CreateModelMixin, ListModelMixin
 from rest_framework.viewsets import GenericViewSet
@@ -23,10 +22,10 @@ class MessageAPIViewSet(AsyncMixin, GenericViewSet,
 
     async def perform_create(self, serializer: s.MessageSerializer):
         await super().perform_create(serializer)
-        instance = serializer.instance
+        instance: m.Message = serializer.instance
         data = serializer.data
-        chatroom: m.Chatroom = instance.chatroom
-        members: BaseManager[m.User] = chatroom.members
+        chatroom = instance.chatroom
+        members = chatroom.members
         usernames: list[str] = await asy(lambda: [str(user) for user in members.all()])()
         [UpdateManager(username, label='message.create').commit(data)
          for username in usernames]
