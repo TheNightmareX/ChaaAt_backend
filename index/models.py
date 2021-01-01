@@ -9,7 +9,7 @@ from datetime import datetime
 
 class User(AbstractUser):
     objects: UserManager['User']
-    
+
     friend_relations_sent: BaseManager['FriendRelation']
     friend_relations_received: BaseManager['FriendRelation']
     messages_sent: BaseManager['Message']
