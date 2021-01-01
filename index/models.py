@@ -1,5 +1,6 @@
-from django.db import models as m
+from typing import Any
 from django.contrib.auth.models import User
+from django.db import models as m
 
 
 class Profile(m.Model):
@@ -24,11 +25,11 @@ class FriendRelation(m.Model):
                                name='unique_relation')
         ]
 
-    def delete(self, *args, **kwargs):
+    def delete(self, using: Any, keep_parents: bool):
         """Destroy the chatroom after the relation is deleted.
         """
-        chatroom = self.chatroom
-        result = super().delete(*args, **kwargs)
+        chatroom: Chatroom = self.chatroom
+        result = super().delete(using, keep_parents)
         chatroom.delete()
         return result
 

@@ -1,29 +1,43 @@
-from rest_framework import serializers as s, validators as v
+from collections import OrderedDict
+from typing import Any
+
+from django.contrib.auth.models import UserManager
+from django.db.models.manager import BaseManager
+from django.db.models.query import QuerySet
+from drfutils.decorators import validation
+from rest_framework import serializers as s
+from rest_framework import validators as v
 from rest_framework.request import Request
 
 from . import models as m
-from drfutils.decorators import validation
 
 
-class ProfileSerializer(s.ModelSerializer):
+def ensure_quota(qs: QuerySet[m.m.Model], quota: int):
+    if qs.exists() and qs.count() > quota:
+        for obj in qs[quota + 1:]:
+            obj.delete()
+
+
+class ProfileSerializer(s.ModelSerializer[m.Profile]):
     class Meta:
         model = m.Profile
         fields = ['friends']
 
 
-class UserSerializer(s.ModelSerializer):
+class UserSerializer(s.ModelSerializer[m.User]):
     class Meta:
         model = m.User
         fields = ['id', 'username', 'password']
         extra_kwargs = {'password': {'write_only': True}}
 
-    def create(self, validated_data):
-        user: m.User = m.User.objects.create_user(username=validated_data['username'],
-                                                  password=validated_data['password'])
+    def create(self, validated_data: dict[str, str]):
+        user_manager: UserManager[m.User] = m.User.objects
+        user = user_manager.create_user(username=validated_data['username'],
+                                        password=validated_data['password'])
         return user
 
 
-class FriendRelationSerializer(s.ModelSerializer):
+class FriendRelationSerializer(s.ModelSerializer[m.FriendRelation]):
     class Meta:
         model = m.FriendRelation
         fields = ['id', 'source_user', 'target_user', 'accepted', 'chatroom']
@@ -34,22 +48,23 @@ class FriendRelationSerializer(s.ModelSerializer):
             message='The relation has already existed.',
         )]
 
-    def to_internal_value(self, data):
+    def to_internal_value(self, data: dict[str, Any]):
         """Use the current user as `source_user`.
         """
-        data = super().to_internal_value(data)
-        data['source_user'] = self.context['request'].user
-        return data
+        internal_data: OrderedDict[str, Any] = super().to_internal_value(data)
+        internal_data['source_user'] = self.context['request'].user
+        return internal_data
 
     @validation
-    def validate_target_user(self, value):
+    def validate_target_user(self, user: m.User):
         """Prevent building relation with self.
         """
-        assert value != self.context['request'].user, \
+        current_user: m.User = self.context['request'].user
+        assert user != current_user, \
             '`target_user` can not be the same as `source_user`'
 
     @validation
-    def validate(self, data):
+    def validate(self, data: dict[str, Any]):
         """Prevent the inverse request if the relation has already accepted.
         """
         assert not m.FriendRelation.objects.filter(source_user=data['target_user'],
@@ -57,35 +72,39 @@ class FriendRelationSerializer(s.ModelSerializer):
                                                    accepted=True).exists(), \
             'The relation has already existed and accepted.'
 
-    def to_representation(self, instance):
+    def to_representation(self, instance: m.FriendRelation):
         """Serialize the user fields.
         """
-        ret = super().to_representation(instance)
+        ret: dict[str, Any] = super().to_representation(instance)
         for key in ['source_user', 'target_user']:
             ret[key] = UserSerializer(getattr(instance, key)).data
         return ret
 
-    def create(self, validated_data):
+    def create(self, validated_data: dict[str, Any]):
         """Accept the relation if both of the users have requested the relation towards each other.
         """
-        inverse_relation = m.FriendRelation.objects.filter(source_user=validated_data['target_user'],
-                                                           target_user=validated_data['source_user'],
-                                                           accepted=False)
-        if inverse_relation.exists():
-            inverse_relation: m.FriendRelation = inverse_relation[0]
+        inverse_relations: BaseManager[m.FriendRelation] = m.FriendRelation.objects.filter(
+            source_user=validated_data['target_user'],
+            target_user=validated_data['source_user'],
+            accepted=False,
+        )
+        if inverse_relations.exists():
+            inverse_relation = inverse_relations[0]
             inverse_relation.accepted = True
             inverse_relation.save()
             return inverse_relation
         else:
-            chatroom: m.Chatroom = m.Chatroom.objects.create()
-            chatroom.members.add(
-                validated_data['source_user'], validated_data['target_user'])
+            chatroom_manager: BaseManager[m.Chatroom] = m.Chatroom.objects
+            chatroom = chatroom_manager.create()
+            chatroom.members.add(validated_data['source_user'],
+                                 validated_data['target_user'])
             chatroom.save()
             validated_data['chatroom'] = chatroom
-            return super().create(validated_data)
+            relation: m.FriendRelation = super().create(validated_data)
+            return relation
 
 
-class ChatroomSerializer(s.ModelSerializer):
+class ChatroomSerializer(s.ModelSerializer[m.Chatroom]):
     class Meta:
         model = m.Chatroom
         fields = ['id', 'members']
@@ -97,7 +116,7 @@ class ChatroomSerializer(s.ModelSerializer):
             f'There should be at most {MAX_MEMBERS} members in a chatroom.'
 
 
-class MessageSerializer(s.ModelSerializer):
+class MessageSerializer(s.ModelSerializer[m.Message]):
     class Meta:
         model = m.Message
         fields = ['id', 'text', 'sender', 'chatroom', 'creation_time']
@@ -105,26 +124,25 @@ class MessageSerializer(s.ModelSerializer):
 
     def validate_chatroom(self, chatroom: m.Chatroom):
         request: Request = self.context['request']
-        assert chatroom.members.filter(pk=request.user.pk).exists(), \
+        # `ManyRelatedManager` actually
+        member_manager: BaseManager[m.Chatroom] = chatroom.members
+        assert member_manager.filter(pk=request.user.pk).exists(), \
             f"Require the user to be a member of the chatroom."
         return chatroom
 
-    def create(self, validated_data):
-        # Use the current user as the value of the `sender` field.
+    def create(self, validated_data: dict[str, Any]):
+        """Use the current user as the value of the `sender` field.
+        """
         request: Request = self.context['request']
+
         validated_data['sender'] = request.user
         ret = super().create(validated_data)
 
         # Delete the messages which are over quota.
-        QUOTA = 500
-        relevant_chatrooms = m.Chatroom.objects.filter(members=request.user)
-        relevant_messages = m.Message.objects.filter(
-            chatroom__in=relevant_chatrooms).order_by('-id')
+        related_chatrooms = m.Chatroom.objects.filter(members=request.user)
+        related_messages = m.Message.objects.filter(
+            chatroom__in=related_chatrooms).order_by('-id')
         # 500 messages take up at most 20kb of space
-        if relevant_messages.count() > QUOTA:
-            for message in relevant_messages[QUOTA + 1:]:
-                print('delete')
-                message: m.Message
-                message.delete()
+        ensure_quota(related_messages, 500)
 
         return ret

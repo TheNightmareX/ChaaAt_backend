@@ -1,8 +1,13 @@
 import asyncio as aio
+from typing import Any, Awaitable, Callable
 
 from asgiref.sync import sync_to_async
+from django.db import models as m
+from rest_framework import serializers as s
 from rest_framework import status
+from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.utils.serializer_helpers import ReturnDict
 
 
 class AsyncMixin:
@@ -14,12 +19,13 @@ class AsyncMixin:
             pass
     """
     @classmethod
-    def as_view(cls, *args, **initkwargs):
+    def as_view(cls, *args: Any, **initkwargs: Any):
         """Make Django process the view as an async view.
         """
+        view: Callable[[Request], Awaitable[Response]]
         view = super().as_view(*args, **initkwargs)
 
-        async def async_view(*args, **kwargs):
+        async def async_view(*args: Any, **kwargs: Any) -> Awaitable[Response]:
             # wait for the `dispatch` method
             return await view(*args, **kwargs)
         return async_view
@@ -67,18 +73,21 @@ class AsyncCreateModelMixin:
         class MyViewSet(AsyncMixin, GenericViewSet, AsyncCreateModelMixin, CreateModelMixin):
             pass
     """
-    async def create(self, request, *args, **kwargs):
+    async def create(self, request: Request, *args: Any, **kwargs: Any):
+        serializer: s.Serializer[m.Model]
         serializer = self.get_serializer(data=request.data)
         await sync_to_async(serializer.is_valid)(
             raise_exception=True)  # MODIFIED HERE
         await self.perform_create(serializer)  # MODIFIED HERE
+        data: ReturnDict
         data = await sync_to_async(lambda: serializer.data)()  # MODIFIED HERE
+        headers: dict[str, str]
         headers = self.get_success_headers(data)  # MODIFIED HERE
         return Response(data,  # MODIFIED HERE
                         status=status.HTTP_201_CREATED,
                         headers=headers)
 
-    async def perform_create(self, serializer):
+    async def perform_create(self, serializer: s.Serializer[m.Model]):
         await sync_to_async(serializer.save)()
 
 
@@ -92,10 +101,11 @@ class AsyncDestroyModelMixin:
         class MyViewSet(AsyncMixin, GenericViewSet, AsyncDestroyModelMixin, DestroyModelMixin):
             pass
     """
-    async def destroy(self, request, *args, **kwargs):
+    async def destroy(self, request: Request, *args: Any, **kwargs: Any):
+        instance: m.Model
         instance = await sync_to_async(self.get_object)()  # MODIFIED HERE
         await self.perform_destroy(instance)  # MODIFIED HERE
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    async def perform_destroy(self, instance):
+    async def perform_destroy(self, instance: m.Model):
         await sync_to_async(instance.delete)()  # MODIFIED HERE

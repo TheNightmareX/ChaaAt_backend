@@ -21,12 +21,12 @@ class MessageAPIViewSet(AsyncMixin, GenericViewSet,
         chatrooms = m.Chatroom.objects.filter(members=self.request.user)
         return m.Message.objects.filter(chatroom__in=chatrooms).order_by('id')
 
-    async def perform_create(self, serializer: s.s.Serializer):
+    async def perform_create(self, serializer: s.MessageSerializer):
         await super().perform_create(serializer)
-        instance: m.Message = serializer.instance
+        instance = serializer.instance
         data = serializer.data
         chatroom: m.Chatroom = instance.chatroom
-        members: BaseManager = chatroom.members
-        usernames = await asy(lambda: [str(user) for user in members.all()])()
+        members: BaseManager[m.User] = chatroom.members
+        usernames: list[str] = await asy(lambda: [str(user) for user in members.all()])()
         [UpdateManager(username, label='message.create').commit(data)
          for username in usernames]

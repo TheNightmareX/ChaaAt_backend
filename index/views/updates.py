@@ -8,15 +8,15 @@ from rest_framework.views import APIView
 
 
 class UpdateManager:
-    __waiters_mapping: dict[Any, aio.Future] = {}
+    __waiters_mapping: dict[Any, aio.Future[Any]] = {}
     __cache_pools_mapping: dict[Any, list[Any]] = {}
 
-    def __init__(self, key: Any, label: str = None):
+    def __init__(self, key: Any, label: str = ''):
         self.key = key
         self.label = label
 
     @staticmethod
-    def from_user(request: Request, label: str = None):
+    def from_user(request: Request, label: str = ''):
         return UpdateManager(str(request.user), label)
 
     def commit(self, update: Any):

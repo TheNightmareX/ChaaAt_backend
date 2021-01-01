@@ -1,3 +1,7 @@
+from typing import Any
+
+from django.db.models.manager import BaseManager
+from django.db.models.query import QuerySet
 from drfutils.decorators import require_params
 from rest_framework.exceptions import ParseError
 from rest_framework.mixins import CreateModelMixin, ListModelMixin
@@ -14,12 +18,14 @@ class ChatroomAPIViewSet(GenericViewSet,
     serializer_class = s.ChatroomSerializer
 
     @require_params(optionals={'member_contains': None})
-    def get_queryset(self, params):
+    def get_queryset(self, params: dict[str, Any]):
         member_contains = params['member_contains']
         if member_contains:
             try:
-                return m.Chatroom.objects.filter(members=member_contains)
+                chatroom_manager: BaseManager[m.Chatroom] = m.Chatroom.objects
+                return chatroom_manager.filter(members=member_contains)
             except ValueError as e:
-                raise ParseError(e)
+                raise ParseError(str(e))
         else:
-            return super().get_queryset()
+            qs: QuerySet[m.Chatroom] = super().get_queryset()
+            return qs

@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.contrib import auth
 from drfutils.decorators import require_params
 from rest_framework.exceptions import AuthenticationFailed
@@ -17,7 +19,7 @@ class AuthAPIView(APIView):
         return Response(self.serialized_user)
 
     @require_params(essentials=['username', 'password'])
-    def post(self, request: Request, params):
+    def post(self, request: Request, params: dict[str, Any]):
         if not (user := auth.authenticate(username=params['username'], password=params['password'])):
             raise AuthenticationFailed()
         auth.login(request, user)

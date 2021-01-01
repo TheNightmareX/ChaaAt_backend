@@ -3,6 +3,7 @@ from drfutils.mixins import (AsyncCreateModelMixin, AsyncDestroyModelMixin,
                              AsyncMixin)
 from rest_framework.mixins import (CreateModelMixin, DestroyModelMixin,
                                    ListModelMixin)
+from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework.viewsets import GenericViewSet
 
 from .. import models as m
@@ -27,14 +28,14 @@ class FriendRelationAPIViewSet(AsyncMixin, GenericViewSet,
         )
         return qs.order_by('id')
 
-    async def perform_create(self, serializer: s.s.Serializer):
+    async def perform_create(self, serializer: s.FriendRelationSerializer):
         """Commit the updation.
         """
         await super().perform_create(serializer)
-        instance: m.FriendRelation = serializer.instance
+        instance = serializer.instance
         for field in ['source_user', 'target_user']:
             username = str(await asy(getattr)(instance, field))
-            update = await asy(lambda: serializer.data)()
+            update: ReturnDict = await asy(lambda: serializer.data)()
             UpdateManager(
                 username, label='friend_relation.create').commit(update)
 
