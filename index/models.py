@@ -2,6 +2,7 @@ from typing import Any
 from django.contrib.auth.models import User
 from django.db import models as m
 
+
 class Chatroom(m.Model):
     members = m.ManyToManyField(User)
 
@@ -20,11 +21,11 @@ class FriendRelation(m.Model):
                                name='unique_relation')
         ]
 
-    def delete(self, using: Any, keep_parents: bool):
+    def delete(self, *args: Any, **kwargs: Any):
         """Destroy the chatroom after the relation is deleted.
         """
         chatroom: Chatroom = self.chatroom
-        result = super().delete(using, keep_parents)
+        result = super().delete(*args, **kwargs)
         chatroom.delete()
         return result
 
