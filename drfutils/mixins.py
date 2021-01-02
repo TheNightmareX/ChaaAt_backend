@@ -5,7 +5,8 @@ from asgiref.sync import sync_to_async
 from django.db import models as m
 from rest_framework import serializers as s
 from rest_framework import status
-from rest_framework.mixins import CreateModelMixin, DestroyModelMixin
+from rest_framework.mixins import (CreateModelMixin, DestroyModelMixin,
+                                   UpdateModelMixin)
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.serializer_helpers import ReturnDict
@@ -86,6 +87,36 @@ class AsyncBulkCreateModelMixin(CreateModelMixin):
         await sync_to_async(serializer.save)()
 
 
+class AsyncUpdateModelMixin(UpdateModelMixin):
+    """Make `create()` and `perform_create()` overridable.
+
+    Without inheriting this class, the event loop can't be used in these two methods when override them.
+
+        class MyViewSet(AsyncMixin, GenericViewSet, AsyncUpdateModelMixin):
+            pass
+    """
+    async def update(self, request: Request, *args: Any, **kwargs: Any):
+        partial = kwargs.pop('partial', False)
+        instance: m.Model = await sync_to_async(self.get_object)()
+        serializer: s.BaseSerializer[Any]
+        serializer = self.get_serializer(instance, data=request.data,
+                                         partial=partial)
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
+        await self.perform_update(serializer)
+
+        if getattr(instance, '_prefetched_objects_cache', None):
+            instance._prefetched_objects_cache = {}
+
+        return Response(await sync_to_async(lambda: serializer.data)())
+
+    async def perform_update(self, serializer: s.BaseSerializer[Any]):
+        await sync_to_async(serializer.save)()
+
+    async def partial_update(self, request: Request, *args: Any, **kwargs: Any):
+        kwargs['partial'] = True
+        return await self.update(request, *args, **kwargs)
+
+
 class AsyncDestroyModelMixin(DestroyModelMixin):
     """Make `destroy()` and `perform_destroy()` overridable.
 
@@ -96,9 +127,9 @@ class AsyncDestroyModelMixin(DestroyModelMixin):
     """
     async def destroy(self, request: Request, *args: Any, **kwargs: Any):
         instance: m.Model
-        instance = await sync_to_async(self.get_object)()  # MODIFIED HERE
-        await self.perform_destroy(instance)  # MODIFIED HERE
+        instance = await sync_to_async(self.get_object)()
+        await self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     async def perform_destroy(self, instance: m.Model):
-        await sync_to_async(instance.delete)()  # MODIFIED HERE
+        await sync_to_async(instance.delete)()
