@@ -1,8 +1,7 @@
 from asgiref.sync import sync_to_async as asy
 from drfutils.mixins import (AsyncCreateModelMixin, AsyncDestroyModelMixin,
                              AsyncMixin)
-from rest_framework.mixins import (CreateModelMixin, DestroyModelMixin,
-                                   ListModelMixin)
+from rest_framework.mixins import ListModelMixin
 from rest_framework.utils.serializer_helpers import ReturnDict
 from rest_framework.viewsets import GenericViewSet
 
@@ -13,8 +12,8 @@ from .updates import UpdateManager
 
 class FriendRelationAPIViewSet(AsyncMixin, GenericViewSet,
                                ListModelMixin,
-                               AsyncCreateModelMixin, CreateModelMixin,
-                               AsyncDestroyModelMixin, DestroyModelMixin):
+                               AsyncCreateModelMixin,
+                               AsyncDestroyModelMixin):
     queryset = m.FriendRelation.objects.all()
     serializer_class = s.FriendRelationSerializer
 

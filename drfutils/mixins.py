@@ -5,6 +5,7 @@ from asgiref.sync import sync_to_async
 from django.db import models as m
 from rest_framework import serializers as s
 from rest_framework import status
+from rest_framework.mixins import CreateModelMixin, DestroyModelMixin
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.serializer_helpers import ReturnDict
@@ -63,14 +64,12 @@ class AsyncMixin:
         return self.response
 
 
-class AsyncCreateModelMixin:
+class AsyncCreateModelMixin(CreateModelMixin):
     """Make `create()` and `perform_create()` overridable.
 
     Without inheriting this class, the event loop can't be used in these two methods when override them.
 
-    This must be inherited before `CreateModelMixin`.
-
-        class MyViewSet(AsyncMixin, GenericViewSet, AsyncCreateModelMixin, CreateModelMixin):
+        class MyViewSet(AsyncMixin, GenericViewSet, AsyncCreateModelMixin):
             pass
     """
     async def create(self, request: Request, *args: Any, **kwargs: Any):
@@ -91,14 +90,12 @@ class AsyncCreateModelMixin:
         await sync_to_async(serializer.save)()
 
 
-class AsyncDestroyModelMixin:
+class AsyncDestroyModelMixin(DestroyModelMixin):
     """Make `destroy()` and `perform_destroy()` overridable.
 
     Without inheriting this class, the event loop can't be used in these two methods when override them.
 
-    This must be inherited before `DestroyModelMixin`.
-
-        class MyViewSet(AsyncMixin, GenericViewSet, AsyncDestroyModelMixin, DestroyModelMixin):
+        class MyViewSet(AsyncMixin, GenericViewSet, AsyncDestroyModelMixin):
             pass
     """
     async def destroy(self, request: Request, *args: Any, **kwargs: Any):
