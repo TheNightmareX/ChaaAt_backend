@@ -73,7 +73,7 @@ class AsyncCreateModelMixin(CreateModelMixin):
             pass
     """
     async def create(self, request: Request, *args: Any, **kwargs: Any):
-        serializer: s.Serializer[m.Model]
+        serializer: s.BaseSerializer[Any]
         serializer = self.get_serializer(data=request.data)
         await sync_to_async(serializer.is_valid)(
             raise_exception=True)  # MODIFIED HERE
@@ -86,7 +86,7 @@ class AsyncCreateModelMixin(CreateModelMixin):
                         status=status.HTTP_201_CREATED,
                         headers=headers)
 
-    async def perform_create(self, serializer: s.Serializer[m.Model]):
+    async def perform_create(self, serializer: s.BaseSerializer[Any]):
         await sync_to_async(serializer.save)()
 
 
@@ -106,3 +106,15 @@ class AsyncDestroyModelMixin(DestroyModelMixin):
 
     async def perform_destroy(self, instance: m.Model):
         await sync_to_async(instance.delete)()  # MODIFIED HERE
+
+
+class AsyncBulkCreateModelMixin(AsyncCreateModelMixin):
+    async def create(self, request: Request, *args: Any, **kwargs: Any):
+        many = True if type(request.data) == list else False
+        serializer: s.BaseSerializer[Any]
+        serializer = self.get_serializer(data=request.data, many=many)
+        await sync_to_async(serializer.is_valid)(raise_exception=True)
+        await self.perform_create(serializer)
+        data: ReturnDict=await sync_to_async(lambda: serializer.data)()
+        headers = self.get_success_headers(data)
+        return Response(data, status=status.HTTP_201_CREATED, headers=headers)
