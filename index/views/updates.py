@@ -10,6 +10,7 @@ from rest_framework.views import APIView
 class UpdateManager:
     __waiters_mapping: dict[Any, aio.Future[Any]] = {}
     __cache_pools_mapping: dict[Any, list[Any]] = {}
+    QUOTA = 20
 
     def __init__(self, key: Any, label: str = ''):
         self.key = key
@@ -30,6 +31,11 @@ class UpdateManager:
             # not waiting, cache update
             self.__cache_pools_mapping.setdefault(self.key, [])
             self.__cache_pools_mapping[self.key].append(update)
+            self.ensure_quota()
+
+    def ensure_quota(self):
+        if len(self.__cache_pools_mapping) > self.QUOTA:
+            self.__cache_pools_mapping[self.key] = self.__cache_pools_mapping[-self.QUOTA:]
 
     async def next(self, timeout: int = 30) -> Any or None:
         """Return the next update or None if it timeout.
