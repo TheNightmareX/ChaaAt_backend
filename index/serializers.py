@@ -39,7 +39,7 @@ class FriendRelationSerializer(s.ModelSerializer[m.FriendRelation]):
             message='The relation has already existed.',
         )]
 
-    def to_internal_value(self, data: dict[str, Any]):
+    def to_internal_value(self, data: dict[str, str]):
         """Use the current user as `source_user`.
         """
         internal_data: OrderedDict[str, Any] = super().to_internal_value(data)
@@ -112,26 +112,24 @@ class MessageSerializer(s.ModelSerializer[m.Message]):
         fields = ['id', 'text', 'sender', 'chatroom', 'creation_time']
         read_only_fields = ['sender']
 
+    @validation
     def validate_chatroom(self, chatroom: m.Chatroom):
         request: Request = self.context['request']
         # `ManyRelatedManager` actually
         assert chatroom.members.filter(pk=request.user.pk).exists(), \
             f"Require the user to be a member of the chatroom."
-        return chatroom
+
+    def to_internal_value(self, data: dict[str, str]):
+        internal_data = super().to_internal_value(data)
+        internal_data['sender'] = self.context['request'].user
+        return internal_data
 
     def create(self, validated_data: dict[str, Any]):
-        """Use the current user as the value of the `sender` field.
-        """
-        request: Request = self.context['request']
-
-        validated_data['sender'] = request.user
-        ret = super().create(validated_data)
+        message = super().create(validated_data)
 
         # Delete the messages which are over quota.
-        related_chatrooms = m.Chatroom.objects.filter(members=request.user)
-        related_messages = m.Message.objects.filter(
-            chatroom__in=related_chatrooms).order_by('-id')
-        # 500 messages take up at most 20kb of space
-        ensure_quota(related_messages, 500)
+        chatroom = message.chatroom
+        # 500 messages take up about 10kb of space
+        ensure_quota(chatroom.messages, 500)
 
-        return ret
+        return message
