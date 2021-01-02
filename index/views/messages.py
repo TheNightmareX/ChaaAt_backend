@@ -1,5 +1,5 @@
 from asgiref.sync import sync_to_async as asy
-from drfutils.mixins import AsyncCreateModelMixin, AsyncMixin
+from drfutils.mixins import AsyncBulkCreateModelMixin, AsyncMixin
 from rest_framework.mixins import CreateModelMixin, ListModelMixin
 from rest_framework.viewsets import GenericViewSet
 
@@ -9,7 +9,7 @@ from .updates import UpdateManager
 
 
 class MessageAPIViewSet(AsyncMixin, GenericViewSet,
-                        AsyncCreateModelMixin, CreateModelMixin,
+                        AsyncBulkCreateModelMixin, CreateModelMixin,
                         ListModelMixin):
     queryset = m.Message.objects.all()
     serializer_class = s.MessageSerializer
