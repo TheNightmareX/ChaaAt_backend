@@ -20,7 +20,7 @@ def require_params(essentials: list[str] = [], optionals: dict[str, Any] = {}) -
             request: Request = self.request
             query, data = request.query_params, request.data
             all = {}
-            all.update(query)
+            all.update(query.dict())
             all.update(data)
             params = {}
             try:
