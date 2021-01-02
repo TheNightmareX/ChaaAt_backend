@@ -10,6 +10,7 @@ from datetime import datetime
 class User(AbstractUser):
     objects: UserManager['User']
 
+    id: int
     friend_relations_sent: BaseManager['FriendRelation']
     friend_relations_received: BaseManager['FriendRelation']
     messages_sent: BaseManager['Message']
@@ -25,6 +26,8 @@ class Chatroom(m.Model):
 
 class FriendRelation(m.Model):
     objects: BaseManager['FriendRelation']
+
+    id: int
 
     source_user: User = m.ForeignKey(User, on_delete=m.CASCADE,
                                      related_name='friend_relations_sent')
@@ -51,6 +54,8 @@ class FriendRelation(m.Model):
 
 class Message(m.Model):
     objects: BaseManager['Message']
+
+    id: int
 
     text: str = m.TextField(max_length=300)
     sender: User = m.ForeignKey(User, on_delete=m.CASCADE,
