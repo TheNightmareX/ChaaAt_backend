@@ -32,28 +32,32 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.SessionAuthentication',
     ],
-    'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',
-    ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 100,
+    'PAGE_SIZE': 30,
     'DEFAULT_THROTTLE_CLASSES': [
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
         'anon': '3/second',
-        'user': '10/second',
-    }
+        'user': '60/minute',
+    },
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend'
+    ],
+    'TEST_REQUEST_DEFAULT_FORMAT': 'json',
+}
+
+DRF_ACCESS_POLICY = {
+    "reusable_conditions": "index.public_access_conditions"
 }
 
 # Application definition
 
-ASGI_APPLICATION = "ChaaAt_backend.asgi.application"
-
 INSTALLED_APPS = [
     'rest_framework',
-    'drfutils',
+    'django_filters',
+    'rest_framework.authtoken',
     'index',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -93,6 +97,8 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'ChaaAt_backend.wsgi.application'
+
+ASGI_APPLICATION = "ChaaAt_backend.asgi.application"
 
 
 # Database
