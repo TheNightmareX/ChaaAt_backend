@@ -1,12 +1,5 @@
 # ChaaAt(backend)
 
-第二个 Django + DjangoRESTFramework 项目  
-高一作业有点多……更新可能较慢  
-依然相当不成熟，如果你发现当前 commit 中有迷惑行为，欢迎通过 issue 告知
-
-目前 Django 的异步生态相当不成熟，只支持异步函数视图，DRF 更是完全不支持异步视图（作者大大说要等 Django 异步成熟后再支持异步  
-为了实现我想要的效果，我对 Django 和 DRF 进行了补丁式的修改（通过 mixin），使其支持了异步类视图，如有需要可自取：/drfutils/mixins.py
-
 ## 后端部署(Windows 下开发部署)
 
 ```
